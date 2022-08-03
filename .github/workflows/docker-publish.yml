@@ -71,7 +71,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            "BASE_IMAGE=k8s.gcr.io/debian-base:v2.0.0"
+            "BASEIMAGE=k8s.gcr.io/debian-base:v2.0.0"
             "LOGCOUNTER=./bin/log-counter"
             
       # Sign the resulting Docker image digest except on PRs.
