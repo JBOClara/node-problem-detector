@@ -19,7 +19,7 @@ env:
   # Use docker.io for Docker Hub if empty
   REGISTRY: ttl.sh
   # github.repository as <account>/<repo>
-  IMAGE_NAME: ${{ github.repository }}-clara
+  IMAGE_NAME: node-problem-detector-clara
 
 
 jobs:
