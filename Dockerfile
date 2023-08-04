@@ -13,7 +13,7 @@
 # limitations under the License.
 ARG BASEIMAGE
 
-FROM golang:1.17.7 as builder
+FROM golang:1.21rc3 as builder
 LABEL maintainer="Andy Xie <andy.xning@gmail.com>"
 
 ENV GOPATH /gopath/
