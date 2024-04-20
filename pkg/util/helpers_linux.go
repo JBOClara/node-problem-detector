@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -57,6 +57,16 @@ func getOSVersion(osReleasePath string) (string, error) {
 	case "centos":
 		return getDebianVersion(osReleaseMap), nil
 	case "rhel":
+		return getDebianVersion(osReleaseMap), nil
+	case "ol":
+		return getDebianVersion(osReleaseMap), nil
+	case "amzn":
+		return getDebianVersion(osReleaseMap), nil
+	case "sles":
+		return getDebianVersion(osReleaseMap), nil
+	case "mariner":
+		return getDebianVersion(osReleaseMap), nil
+	case "azurelinux":
 		return getDebianVersion(osReleaseMap), nil
 	default:
 		return "", fmt.Errorf("Unsupported ID in /etc/os-release: %q", osReleaseMap["ID"])

@@ -15,12 +15,12 @@ package systemstatsmonitor
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
-	"github.com/golang/glog"
+	"k8s.io/klog/v2"
 	ssmtypes "k8s.io/node-problem-detector/pkg/systemstatsmonitor/types"
 	"k8s.io/node-problem-detector/pkg/util/metrics"
 	"k8s.io/node-problem-detector/pkg/util/metrics/system"
@@ -38,7 +38,7 @@ func NewOsFeatureCollectorOrDie(osFeatureConfig *ssmtypes.OSFeatureStatsConfig, 
 		procPath: procPath,
 	}
 	var err error
-	// Use metrics.Last aggregation method to ensure the metric is a guage metric.
+	// Use metrics.Last aggregation method to ensure the metric is a gauge metric.
 	if osFeatureConfig.MetricsConfigs["system/os_feature"].DisplayName != "" {
 		oc.osFeature, err = metrics.NewInt64Metric(
 			metrics.OSFeatureID,
@@ -48,7 +48,7 @@ func NewOsFeatureCollectorOrDie(osFeatureConfig *ssmtypes.OSFeatureStatsConfig, 
 			metrics.LastValue,
 			[]string{featureLabel, valueLabel})
 		if err != nil {
-			glog.Fatalf("Error initializing metric for system/os_feature: %v", err)
+			klog.Fatalf("Error initializing metric for system/os_feature: %v", err)
 		}
 	}
 	return &oc
@@ -102,9 +102,9 @@ func (ofc *osFeatureCollector) recordFeaturesFromCmdline(cmdlineArgs []system.Cm
 func (ofc *osFeatureCollector) recordFeaturesFromModules(modules []system.Module) {
 	// Collect known modules (default modules based on guest OS present in known-modules.json)
 	var knownModules []system.Module
-	f, err := ioutil.ReadFile(ofc.config.KnownModulesConfigPath)
+	f, err := os.ReadFile(ofc.config.KnownModulesConfigPath)
 	if err != nil {
-		glog.Warningf("Failed to read configuration file %s: %v",
+		klog.Warningf("Failed to read configuration file %s: %v",
 			ofc.config.KnownModulesConfigPath, err)
 	}
 	// When the knownModulesConfigPath is not set
@@ -112,7 +112,7 @@ func (ofc *osFeatureCollector) recordFeaturesFromModules(modules []system.Module
 	if f != nil {
 		err = json.Unmarshal(f, &knownModules)
 		if err != nil {
-			glog.Warningf("Failed to retrieve known modules %v", err)
+			klog.Warningf("Failed to retrieve known modules %v", err)
 		}
 	} else {
 		knownModules = []system.Module{}
@@ -152,12 +152,12 @@ func (ofc *osFeatureCollector) collect() {
 	}
 	cmdlineArgs, err := system.CmdlineArgs(filepath.Join(ofc.procPath, "/cmdline"))
 	if err != nil {
-		glog.Fatalf("Error retrieving cmdline args: %v", err)
+		klog.Fatalf("Error retrieving cmdline args: %v", err)
 	}
 	ofc.recordFeaturesFromCmdline(cmdlineArgs)
 	modules, err := system.Modules(filepath.Join(ofc.procPath, "/modules"))
 	if err != nil {
-		glog.Fatalf("Error retrieving kernel modules: %v", err)
+		klog.Fatalf("Error retrieving kernel modules: %v", err)
 	}
 	ofc.recordFeaturesFromModules(modules)
 }

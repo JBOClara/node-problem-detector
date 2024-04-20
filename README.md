@@ -7,11 +7,11 @@ layers in the cluster management stack.
 It is a daemon that runs on each node, detects node
 problems and reports them to apiserver.
 node-problem-detector can either run as a
-[DaemonSet](http://kubernetes.io/docs/admin/daemons/) or run standalone.
+[DaemonSet](https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/) or run standalone.
 Now it is running as a
 [Kubernetes Addon](https://github.com/kubernetes/kubernetes/tree/master/cluster/addons)
-enabled by default in the GCE cluster.
-
+enabled by default in the GKE cluster. It is also enabled by default in AKS as part of the
+[AKS Linux Extension](https://learn.microsoft.com/en-us/azure/aks/faq#what-is-the-purpose-of-the-aks-linux-extension-i-see-installed-on-my-linux-vmss-instances).
 # Background
 
 There are tons of node problems that could possibly affect the pods running on the
@@ -62,9 +62,9 @@ List of supported problem daemons types:
 | Problem Daemon Types |  NodeCondition  | Description | Configs | Disabling Build Tag |
 |----------------|:---------------:|:------------|:--------|:--------------------|
 | [SystemLogMonitor](https://github.com/kubernetes/node-problem-detector/tree/master/pkg/systemlogmonitor) | KernelDeadlock ReadonlyFilesystem FrequentKubeletRestart FrequentDockerRestart FrequentContainerdRestart | A system log monitor monitors system log and reports problems and metrics according to predefined rules. | [filelog](https://github.com/kubernetes/node-problem-detector/blob/master/config/kernel-monitor-filelog.json), [kmsg](https://github.com/kubernetes/node-problem-detector/blob/master/config/kernel-monitor.json), [kernel](https://github.com/kubernetes/node-problem-detector/blob/master/config/kernel-monitor-counter.json) [abrt](https://github.com/kubernetes/node-problem-detector/blob/master/config/abrt-adaptor.json) [systemd](https://github.com/kubernetes/node-problem-detector/blob/master/config/systemd-monitor-counter.json) | disable_system_log_monitor
-| [SystemStatsMonitor](https://github.com/kubernetes/node-problem-detector/tree/master/pkg/systemstatsmonitor) | None(Could be added in the future) | A system stats monitor for node-problem-detector to collect various health-related system stats as metrics. See the proposal [here](https://docs.google.com/document/d/1SeaUz6kBavI283Dq8GBpoEUDrHA2a795xtw0OvjM568/edit). | | disable_system_stats_monitor
+| [SystemStatsMonitor](https://github.com/kubernetes/node-problem-detector/tree/master/pkg/systemstatsmonitor) | None(Could be added in the future) | A system stats monitor for node-problem-detector to collect various health-related system stats as metrics. See the proposal [here](https://docs.google.com/document/d/1SeaUz6kBavI283Dq8GBpoEUDrHA2a795xtw0OvjM568/edit). | [system-stats-monitor](https://github.com/kubernetes/node-problem-detector/blob/master/config/system-stats-monitor.json) | disable_system_stats_monitor
 | [CustomPluginMonitor](https://github.com/kubernetes/node-problem-detector/tree/master/pkg/custompluginmonitor) | On-demand(According to users configuration), existing example: NTPProblem | A custom plugin monitor for node-problem-detector to invoke and check various node problems with user-defined check scripts. See the proposal [here](https://docs.google.com/document/d/1jK_5YloSYtboj-DtfjmYKxfNnUxCAvohLnsH5aGCAYQ/edit#). | [example](https://github.com/kubernetes/node-problem-detector/blob/4ad49bbd84b8ced45ac825eac01ec93d9235935e/config/custom-plugin-monitor.json) | disable_custom_plugin_monitor
-| [HealthChecker](https://github.com/kubernetes/node-problem-detector/tree/master/pkg/healthchecker) | KubeletUnhealthy ContainerRuntimeUnhealthy| A health checker for node-problem-detector to check kubelet and container runtime health. | [kubelet](https://github.com/kubernetes/node-problem-detector/blob/master/config/health-checker-kubelet.json) [docker](https://github.com/kubernetes/node-problem-detector/blob/master/config/health-checker-docker.json) | 
+| [HealthChecker](https://github.com/kubernetes/node-problem-detector/tree/master/pkg/healthchecker) | KubeletUnhealthy ContainerRuntimeUnhealthy| A health checker for node-problem-detector to check kubelet and container runtime health. | [kubelet](https://github.com/kubernetes/node-problem-detector/blob/master/config/health-checker-kubelet.json) [docker](https://github.com/kubernetes/node-problem-detector/blob/master/config/health-checker-docker.json) [containerd](https://github.com/kubernetes/node-problem-detector/blob/master/config/health-checker-containerd.json) |
 
 # Exporter
 
@@ -102,8 +102,13 @@ certain backends. Some of them can be disabled at compile-time using a build tag
 
 * `--config.custom-plugin-monitor`: List of paths to custom plugin monitor config files, comma-separated, e.g.
   [config/custom-plugin-monitor.json](https://github.com/kubernetes/node-problem-detector/blob/master/config/custom-plugin-monitor.json).
-  Node problem detector will start a separate custom plugin monitor for each configuration. You can
+  Node problem detector will start a separate custom plugin monitor for each configuration.  You can
   use different custom plugin monitors to monitor different node problems.
+
+
+#### For Health Checkers
+
+  Health checkers are configured as custom plugins, using the config/health-checker-*.json config files.
 
 #### For Kubernetes exporter
 
@@ -140,10 +145,7 @@ For example, to run without auth, use the following config:
 * Install development dependencies for `libsystemd` and the ARM GCC toolchain
   * Debian/Ubuntu: `apt install libsystemd-dev gcc-aarch64-linux-gnu`
 
-* `go get` or `git clone` node-problem-detector repo into `$GOPATH/src/k8s.io` or `$GOROOT/src/k8s.io`
-with one of the below directions:
-  * `cd $GOPATH/src/k8s.io && git clone git@github.com:kubernetes/node-problem-detector.git`
-  * `cd $GOPATH/src/k8s.io && go get k8s.io/node-problem-detector`
+* `git clone git@github.com:kubernetes/node-problem-detector.git`
 
 * Run `make` in the top directory. It will:
   * Build the binary.
@@ -173,7 +175,7 @@ The easiest way to install node-problem-detector into your cluster is to use the
 
 ```
 helm repo add deliveryhero https://charts.deliveryhero.io/
-helm install deliveryhero/node-problem-detector
+helm install --generate-name deliveryhero/node-problem-detector
 ```
 
 Alternatively, to install node-problem-detector manually:
@@ -182,9 +184,13 @@ Alternatively, to install node-problem-detector manually:
 
 2. Edit [node-problem-detector-config.yaml](deployment/node-problem-detector-config.yaml) to configure node-problem-detector.
 
-3. Create the ConfigMap with `kubectl create -f node-problem-detector-config.yaml`.
+3. Edit [rbac.yaml](deployment/rbac.yaml) to fit your environment.
 
-3. Create the DaemonSet with `kubectl create -f node-problem-detector.yaml`.
+4. Create the ServiceAccount and ClusterRoleBinding with `kubectl create -f rbac.yaml`.
+
+4. Create the ConfigMap with `kubectl create -f node-problem-detector-config.yaml`.
+
+5. Create the DaemonSet with `kubectl create -f node-problem-detector.yaml`.
 
 ## Start Standalone
 
@@ -229,7 +235,7 @@ make test
 %CD%\output\windows_amd64\bin\node-problem-detector.exe --logtostderr --enable-k8s-exporter=false --config.system-log-monitor=%CD%\config\windows-containerd-monitor-filelog.json --config.system-stats-monitor=config\windows-system-stats-monitor.json
 
 # Configure NPD to run as a Windows Service
-sc.exe create NodeProblemDetector binpath= "%CD%\node-problem-detector.exe [FLAGS]" start= demand 
+sc.exe create NodeProblemDetector binpath= "%CD%\node-problem-detector.exe [FLAGS]" start= demand
 sc.exe failure NodeProblemDetector reset= 0 actions= restart/10000
 sc.exe start NodeProblemDetector
 ```
@@ -264,7 +270,7 @@ to manage dependencies. Therefore, building node-problem-detector requires
 golang 1.11+. It still uses vendoring. See the
 [Kubernetes go modules KEP](https://github.com/kubernetes/enhancements/tree/master/keps/sig-architecture/917-go-modules#alternatives-to-vendoring-using-go-modules)
 for the design decisions. To add a new dependency, update [go.mod](go.mod) and
-run `GO111MODULE=on go mod vendor`.
+run `go mod vendor`.
 
 # Remedy Systems
 
@@ -287,16 +293,22 @@ Kubernetes cluster to a healthy state. The following remedy systems exist:
   evicts pods violating NoSchedule taints on nodes. The k8s scheduler's TaintNodesByCondition feature must
   be enabled. The [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)
   can be used to automatically terminate drained nodes.
+* [**mediK8S**](https://github.com/medik8s) is an umbrella project for automatic remediation
+  system build on [Node Health Check Operator (NHC)](https://github.com/medik8s/node-healthcheck-operator) that monitors
+  node conditions and delegates remediation to external remediators using the Remediation API.[Poison-Pill](https://github.com/medik8s/poison-pill)
+  is a remediator that will reboot the node and make sure all statefull workloads are rescheduled. NHC supports conditionally remediating if the cluster
+  has enough healthy capacity, or manually pausing any action to minimze cluster disruption.
+* [**MachineHealthCheck**](https://cluster-api.sigs.k8s.io/developer/architecture/controllers/machine-health-check) of [Cluster API](https://cluster-api.sigs.k8s.io/) are responsible for remediating unhealthy Machines.
 
 # Testing
 
 NPD is tested via unit tests, [NPD e2e tests](https://github.com/kubernetes/node-problem-detector/blob/master/test/e2e/README.md), Kubernetes e2e tests and Kubernetes nodes e2e tests. Prow handles the [pre-submit tests](https://github.com/kubernetes/test-infra/blob/master/config/jobs/kubernetes/node-problem-detector/node-problem-detector-presubmits.yaml) and [CI tests](https://github.com/kubernetes/test-infra/blob/master/config/jobs/kubernetes/node-problem-detector/node-problem-detector-ci.yaml).
 
 CI test results can be found below:
-1. [Unit tests](https://k8s-testgrid.appspot.com/sig-node-node-problem-detector#ci-npd-test)
-2. [NPD e2e tests](https://k8s-testgrid.appspot.com/sig-node-node-problem-detector#ci-npd-e2e-test)
-3. [Kubernetes e2e tests](https://k8s-testgrid.appspot.com/sig-node-node-problem-detector#ci-npd-e2e-kubernetes-gce-gci)
-4. [Kubernetes nodes e2e tests](https://k8s-testgrid.appspot.com/sig-node-node-problem-detector#ci-npd-e2e-node)
+1. [Unit tests](https://testgrid.k8s.io/sig-node-node-problem-detector#ci-npd-test)
+2. [NPD e2e tests](https://testgrid.k8s.io/sig-node-node-problem-detector#ci-npd-e2e-test)
+3. [Kubernetes e2e tests](https://testgrid.k8s.io/sig-node-node-problem-detector#ci-npd-e2e-kubernetes-gce-gci)
+4. [Kubernetes nodes e2e tests](https://testgrid.k8s.io/sig-node-node-problem-detector#ci-npd-e2e-node)
 
 ## Running tests
 
@@ -307,6 +319,10 @@ See [NPD e2e test documentation](https://github.com/kubernetes/node-problem-dete
 ## Problem Maker
 
 [Problem maker](https://github.com/kubernetes/node-problem-detector/blob/master/test/e2e/problemmaker/README.md) is a program used in NPD e2e tests to generate/simulate node problems. It is ONLY intended to be used by NPD e2e tests. Please do NOT run it on your workstation, as it could cause real node problems.
+
+# Compatibility
+
+Node problem detector's architecture has been fairly stable. Recent versions (v0.8.13+) should be able to work with any supported kubernetes versions.
 
 # Docs
 

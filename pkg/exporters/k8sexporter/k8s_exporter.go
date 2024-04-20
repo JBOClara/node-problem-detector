@@ -17,15 +17,16 @@ limitations under the License.
 package k8sexporter
 
 import (
+	"context"
 	"net"
 	"net/http"
-	_ "net/http/pprof"
+	"net/http/pprof"
 	"strconv"
 
-	"github.com/golang/glog"
+	"k8s.io/klog/v2"
 
-	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/utils/clock"
 
 	"k8s.io/node-problem-detector/cmd/options"
 	"k8s.io/node-problem-detector/pkg/exporters/k8sexporter/condition"
@@ -44,16 +45,16 @@ type k8sExporter struct {
 //
 // Note that this function may be blocked (until a timeout occurs) before
 // kube-apiserver becomes ready.
-func NewExporterOrDie(npdo *options.NodeProblemDetectorOptions) types.Exporter {
+func NewExporterOrDie(ctx context.Context, npdo *options.NodeProblemDetectorOptions) types.Exporter {
 	if !npdo.EnableK8sExporter {
 		return nil
 	}
 
 	c := problemclient.NewClientOrDie(npdo)
 
-	glog.Infof("Waiting for kube-apiserver to be ready (timeout %v)...", npdo.APIServerWaitTimeout)
-	if err := waitForAPIServerReadyWithTimeout(c, npdo); err != nil {
-		glog.Warningf("kube-apiserver did not become ready: timed out on waiting for kube-apiserver to return the node object: %v", err)
+	klog.Infof("Waiting for kube-apiserver to be ready (timeout %v)...", npdo.APIServerWaitTimeout)
+	if err := waitForAPIServerReadyWithTimeout(ctx, c, npdo); err != nil {
+		klog.Warningf("kube-apiserver did not become ready: timed out on waiting for kube-apiserver to return the node object: %v", err)
 	}
 
 	ke := k8sExporter{
@@ -62,7 +63,7 @@ func NewExporterOrDie(npdo *options.NodeProblemDetectorOptions) types.Exporter {
 	}
 
 	ke.startHTTPReporting(npdo)
-	ke.conditionManager.Start()
+	ke.conditionManager.Start(ctx)
 
 	return &ke
 }
@@ -94,22 +95,29 @@ func (ke *k8sExporter) startHTTPReporting(npdo *options.NodeProblemDetectorOptio
 		util.ReturnHTTPJson(w, ke.conditionManager.GetConditions())
 	})
 
+	// register pprof
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
 	addr := net.JoinHostPort(npdo.ServerAddress, strconv.Itoa(npdo.ServerPort))
 	go func() {
 		err := http.ListenAndServe(addr, mux)
 		if err != nil {
-			glog.Fatalf("Failed to start server: %v", err)
+			klog.Fatalf("Failed to start server: %v", err)
 		}
 	}()
 }
 
-func waitForAPIServerReadyWithTimeout(c problemclient.Client, npdo *options.NodeProblemDetectorOptions) error {
-	return wait.PollImmediate(npdo.APIServerWaitInterval, npdo.APIServerWaitTimeout, func() (done bool, err error) {
+func waitForAPIServerReadyWithTimeout(ctx context.Context, c problemclient.Client, npdo *options.NodeProblemDetectorOptions) error {
+	return wait.PollUntilContextTimeout(ctx, npdo.APIServerWaitInterval, npdo.APIServerWaitTimeout, true, func(ctx context.Context) (done bool, err error) {
 		// If NPD can get the node object from kube-apiserver, the server is
 		// ready and the RBAC permission is set correctly.
-		if _, err := c.GetNode(); err != nil {
-			glog.Errorf("Can't get node object: %v", err)
-			return false, nil
+		if _, err := c.GetNode(ctx); err != nil {
+			klog.Errorf("Can't get node object: %v", err)
+			return false, err
 		}
 		return true, nil
 	})

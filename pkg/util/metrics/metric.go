@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+	http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
@@ -35,12 +35,14 @@ const (
 	DiskOpsBytesID          MetricID = "disk/operation_bytes_count"
 	DiskOpsTimeID           MetricID = "disk/operation_time"
 	DiskBytesUsedID         MetricID = "disk/bytes_used"
+	DiskPercentUsedID       MetricID = "disk/percent_used"
 	HostUptimeID            MetricID = "host/uptime"
 	MemoryBytesUsedID       MetricID = "memory/bytes_used"
 	MemoryAnonymousUsedID   MetricID = "memory/anonymous_used"
 	MemoryPageCacheUsedID   MetricID = "memory/page_cache_used"
 	MemoryUnevictableUsedID MetricID = "memory/unevictable_used"
 	MemoryDirtyUsedID       MetricID = "memory/dirty_used"
+	MemoryPercentUsedID     MetricID = "memory/percent_used"
 	OSFeatureID             MetricID = "system/os_feature"
 	SystemProcessesTotal    MetricID = "system/processes_total"
 	SystemProcsRunning      MetricID = "system/procs_running"

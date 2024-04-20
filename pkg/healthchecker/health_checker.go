@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang/glog"
+	"k8s.io/klog/v2"
 	"k8s.io/node-problem-detector/cmd/healthchecker/options"
 	"k8s.io/node-problem-detector/pkg/healthchecker/types"
 )
@@ -83,12 +83,12 @@ func (hc *healthChecker) CheckHealth() (bool, error) {
 		// repair if the service has been up for the cool down period.
 		uptime, err := hc.uptimeFunc()
 		if err != nil {
-			glog.Infof("error in getting uptime for %v: %v\n", hc.component, err)
+			klog.Infof("error in getting uptime for %v: %v\n", hc.component, err)
 			return false, nil
 		}
-		glog.Infof("%v is unhealthy, component uptime: %v\n", hc.component, uptime)
+		klog.Infof("%v is unhealthy, component uptime: %v\n", hc.component, uptime)
 		if uptime > hc.coolDownTime {
-			glog.Infof("%v cooldown period of %v exceeded, repairing", hc.component, hc.coolDownTime)
+			klog.Infof("%v cooldown period of %v exceeded, repairing", hc.component, hc.coolDownTime)
 			hc.repairFunc()
 		}
 	}
@@ -102,10 +102,10 @@ func logPatternHealthCheck(service string, loopBackTime time.Duration, logPatter
 		return true, nil
 	}
 	uptimeFunc := getUptimeFunc(service)
-	glog.Infof("Getting uptime for service: %v\n", service)
+	klog.Infof("Getting uptime for service: %v\n", service)
 	uptime, err := uptimeFunc()
 	if err != nil {
-		glog.Warningf("Failed to get the uptime: %+v", err)
+		klog.Warningf("Failed to get the uptime: %+v", err)
 		return true, err
 	}
 
@@ -138,9 +138,9 @@ func healthCheckEndpointOKFunc(endpoint string, timeout time.Duration) func() (b
 func getHealthCheckFunc(hco *options.HealthCheckerOptions) func() (bool, error) {
 	switch hco.Component {
 	case types.KubeletComponent:
-		return healthCheckEndpointOKFunc(types.KubeletHealthCheckEndpoint, hco.HealthCheckTimeout)
+		return healthCheckEndpointOKFunc(types.KubeletHealthCheckEndpoint(), hco.HealthCheckTimeout)
 	case types.KubeProxyComponent:
-		return healthCheckEndpointOKFunc(types.KubeProxyHealthCheckEndpoint, hco.HealthCheckTimeout)
+		return healthCheckEndpointOKFunc(types.KubeProxyHealthCheckEndpoint(), hco.HealthCheckTimeout)
 	case types.DockerComponent:
 		return func() (bool, error) {
 			if _, err := execCommand(hco.HealthCheckTimeout, getDockerPath(), "ps"); err != nil {
@@ -150,13 +150,21 @@ func getHealthCheckFunc(hco *options.HealthCheckerOptions) func() (bool, error) 
 		}
 	case types.CRIComponent:
 		return func() (bool, error) {
-			if _, err := execCommand(hco.HealthCheckTimeout, hco.CriCtlPath, "--runtime-endpoint="+hco.CriSocketPath, "pods", "--latest"); err != nil {
+			_, err := execCommand(
+				hco.HealthCheckTimeout,
+				hco.CriCtlPath,
+				"--timeout="+hco.CriTimeout.String(),
+				"--runtime-endpoint="+hco.CriSocketPath,
+				"pods",
+				"--latest",
+			)
+			if err != nil {
 				return false, nil
 			}
 			return true, nil
 		}
 	default:
-		glog.Warningf("Unsupported component: %v", hco.Component)
+		klog.Warningf("Unsupported component: %v", hco.Component)
 	}
 
 	return nil
@@ -167,10 +175,11 @@ func execCommand(timeout time.Duration, command string, args ...string) (string,
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, command, args...)
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		glog.Infof("command %v failed: %v, %v\n", cmd, err, out)
+		klog.Infof("command %v failed: %v, %s\n", cmd, err, string(out))
 		return "", err
 	}
+
 	return strings.TrimSuffix(string(out), "\n"), nil
 }

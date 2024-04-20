@@ -17,16 +17,17 @@ limitations under the License.
 package main
 
 import (
-	"errors"
+	"context"
+	"flag"
 	"fmt"
 	"sync"
 	"time"
 
-	"github.com/golang/glog"
 	"github.com/spf13/pflag"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/debug"
 	"golang.org/x/sys/windows/svc/eventlog"
+	"k8s.io/klog/v2"
 	"k8s.io/node-problem-detector/cmd/options"
 )
 
@@ -43,6 +44,18 @@ var (
 )
 
 func main() {
+	klogFlags := flag.NewFlagSet("klog", flag.ExitOnError)
+	klog.InitFlags(klogFlags)
+	klogFlags.VisitAll(func(f *flag.Flag) {
+		switch f.Name {
+		case "v", "vmodule", "logtostderr":
+			flag.CommandLine.Var(f.Value, f.Name, f.Usage)
+		}
+	})
+	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
+	pflag.CommandLine.MarkHidden("vmodule")
+	pflag.CommandLine.MarkHidden("logtostderr")
+
 	npdo := options.NewNodeProblemDetectorOptions()
 	npdo.AddFlags(pflag.CommandLine)
 
@@ -62,7 +75,7 @@ func main() {
 func isRunningAsWindowsService() bool {
 	runningAsService, err := svc.IsWindowsService()
 	if err != nil {
-		glog.Errorf("cannot determine if running as Windows Service assuming standalone, %v", err)
+		klog.Errorf("cannot determine if running as Windows Service assuming standalone, %v", err)
 		return false
 	}
 	return runningAsService
@@ -102,26 +115,20 @@ type npdService struct {
 }
 
 func (s *npdService) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (bool, uint32) {
-	appTermCh := make(chan error, 1)
-	svcLoopTermCh := make(chan error, 1)
-	defer func() {
-		close(appTermCh)
-		close(svcLoopTermCh)
-	}()
-
 	changes <- svc.Status{State: svc.StartPending}
 	changes <- svc.Status{State: svc.Running, Accepts: svcCommandsAccepted}
 	var appWG sync.WaitGroup
 	var svcWG sync.WaitGroup
 
 	options := s.options
+	ctx, cancelFunc := context.WithCancel(context.Background())
 
 	// NPD application goroutine.
 	appWG.Add(1)
 	go func() {
 		defer appWG.Done()
 
-		if err := npdMain(options, appTermCh); err != nil {
+		if err := npdMain(ctx, options); err != nil {
 			elog.Warning(windowsEventLogID, err.Error())
 		}
 
@@ -132,15 +139,35 @@ func (s *npdService) Execute(args []string, r <-chan svc.ChangeRequest, changes 
 	svcWG.Add(1)
 	go func() {
 		defer svcWG.Done()
-
-		serviceLoop(r, changes, appTermCh, svcLoopTermCh)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case c := <-r:
+				switch c.Cmd {
+				case svc.Interrogate:
+					changes <- c.CurrentStatus
+					// Testing deadlock from https://code.google.com/p/winsvc/issues/detail?id=4
+					time.Sleep(100 * time.Millisecond)
+					changes <- c.CurrentStatus
+				case svc.Stop, svc.Shutdown:
+					elog.Info(windowsEventLogID, fmt.Sprintf("Stopping %s service, %v", svcName, c.Context))
+					cancelFunc()
+				case svc.Pause:
+					elog.Info(windowsEventLogID, "ignoring pause command from Windows service control, not supported")
+					changes <- svc.Status{State: svc.Paused, Accepts: svcCommandsAccepted}
+				case svc.Continue:
+					elog.Info(windowsEventLogID, "ignoring continue command from Windows service control, not supported")
+					changes <- svc.Status{State: svc.Running, Accepts: svcCommandsAccepted}
+				default:
+					elog.Error(windowsEventLogID, fmt.Sprintf("unexpected control request #%d", c))
+				}
+			}
+		}
 	}()
 
 	// Wait for the application go routine to die.
 	appWG.Wait()
-
-	// Ensure that the service control loop is killed.
-	svcLoopTermCh <- nil
 
 	// Wait for the service control loop to terminate.
 	// Otherwise it's possible that the channel closures cause the application to panic.
@@ -150,32 +177,4 @@ func (s *npdService) Execute(args []string, r <-chan svc.ChangeRequest, changes 
 	changes <- svc.Status{State: svc.Stopped, Accepts: svcCommandsAccepted}
 
 	return false, uint32(0)
-}
-
-func serviceLoop(r <-chan svc.ChangeRequest, changes chan<- svc.Status, appTermCh chan error, svcLoopTermCh chan error) {
-	for {
-		select {
-		case <-svcLoopTermCh:
-			return
-		case c := <-r:
-			switch c.Cmd {
-			case svc.Interrogate:
-				changes <- c.CurrentStatus
-				// Testing deadlock from https://code.google.com/p/winsvc/issues/detail?id=4
-				time.Sleep(100 * time.Millisecond)
-				changes <- c.CurrentStatus
-			case svc.Stop, svc.Shutdown:
-				elog.Info(windowsEventLogID, fmt.Sprintf("Stopping %s service, %v", svcName, c.Context))
-				appTermCh <- errors.New("stopping service")
-			case svc.Pause:
-				elog.Info(windowsEventLogID, "ignoring pause command from Windows service control, not supported")
-				changes <- svc.Status{State: svc.Paused, Accepts: svcCommandsAccepted}
-			case svc.Continue:
-				elog.Info(windowsEventLogID, "ignoring continue command from Windows service control, not supported")
-				changes <- svc.Status{State: svc.Running, Accepts: svcCommandsAccepted}
-			default:
-				elog.Error(windowsEventLogID, fmt.Sprintf("unexpected control request #%d", c))
-			}
-		}
-	}
 }

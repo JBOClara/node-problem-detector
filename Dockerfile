@@ -13,27 +13,35 @@
 # limitations under the License.
 ARG BASEIMAGE
 
-FROM golang:1.17.7 as builder
+# "builder-base" can be overriden using dockerb buildx's --build-context flag,
+# by users who want to use a different images for the builder. E.g. if you need to use an older OS 
+# to avoid dependencies on very recent glibc versions.
+# E.g. of the param: --build-context builder-base=docker-image://golang:<something>@sha256:<something>
+# Must override builder-base, not builder, since the latter is referred to later in the file and so must not be
+# directly replaced. See here, and note that "stage" parameter mentioned there has been renamed to 
+# "build-context": https://github.com/docker/buildx/pull/904#issuecomment-1005871838
+FROM golang:1.22.2-bookworm as builder-base
+FROM builder-base as builder
 LABEL maintainer="Andy Xie <andy.xning@gmail.com>"
+
+ARG TARGETARCH
 
 ENV GOPATH /gopath/
 ENV PATH $GOPATH/bin:$PATH
 
 RUN apt-get update --fix-missing && apt-get --yes install libsystemd-dev gcc-aarch64-linux-gnu
 RUN go version
-RUN go get github.com/tools/godep
-RUN godep version
 
 COPY . /gopath/src/k8s.io/node-problem-detector/
 WORKDIR /gopath/src/k8s.io/node-problem-detector
-RUN make bin/node-problem-detector bin/health-checker bin/log-counter
+RUN GOARCH=${TARGETARCH} make bin/node-problem-detector bin/health-checker bin/log-counter
 
 ARG BASEIMAGE
-FROM ${BASEIMAGE}
+FROM --platform=${TARGETPLATFORM} ${BASEIMAGE}
 
 LABEL maintainer="Random Liu <lantaol@google.com>"
 
-RUN clean-install util-linux libsystemd0 bash systemd
+RUN clean-install util-linux bash libsystemd-dev
 
 # Avoid symlink of /etc/localtime.
 RUN test -h /etc/localtime && rm -f /etc/localtime && cp /usr/share/zoneinfo/UTC /etc/localtime || true

@@ -17,7 +17,9 @@ limitations under the License.
 package main
 
 import (
-	"github.com/golang/glog"
+	"context"
+
+	"k8s.io/klog/v2"
 
 	_ "k8s.io/node-problem-detector/cmd/nodeproblemdetector/exporterplugins"
 	_ "k8s.io/node-problem-detector/cmd/nodeproblemdetector/problemdaemonplugins"
@@ -31,16 +33,7 @@ import (
 	"k8s.io/node-problem-detector/pkg/version"
 )
 
-func npdInteractive(npdo *options.NodeProblemDetectorOptions) {
-	termCh := make(chan error, 1)
-	defer close(termCh)
-
-	if err := npdMain(npdo, termCh); err != nil {
-		glog.Fatalf("Problem detector failed with error: %v", err)
-	}
-}
-
-func npdMain(npdo *options.NodeProblemDetectorOptions, termCh <-chan error) error {
+func npdMain(ctx context.Context, npdo *options.NodeProblemDetectorOptions) error {
 	if npdo.PrintVersion {
 		version.PrintVersion()
 		return nil
@@ -53,18 +46,18 @@ func npdMain(npdo *options.NodeProblemDetectorOptions, termCh <-chan error) erro
 	// Initialize problem daemons.
 	problemDaemons := problemdaemon.NewProblemDaemons(npdo.MonitorConfigPaths)
 	if len(problemDaemons) == 0 {
-		glog.Fatalf("No problem daemon is configured")
+		klog.Fatalf("No problem daemon is configured")
 	}
 
 	// Initialize exporters.
 	defaultExporters := []types.Exporter{}
-	if ke := k8sexporter.NewExporterOrDie(npdo); ke != nil {
+	if ke := k8sexporter.NewExporterOrDie(ctx, npdo); ke != nil {
 		defaultExporters = append(defaultExporters, ke)
-		glog.Info("K8s exporter started.")
+		klog.Info("K8s exporter started.")
 	}
 	if pe := prometheusexporter.NewExporterOrDie(npdo); pe != nil {
 		defaultExporters = append(defaultExporters, pe)
-		glog.Info("Prometheus exporter started.")
+		klog.Info("Prometheus exporter started.")
 	}
 
 	plugableExporters := exporters.NewExporters()
@@ -74,10 +67,10 @@ func npdMain(npdo *options.NodeProblemDetectorOptions, termCh <-chan error) erro
 	npdExporters = append(npdExporters, plugableExporters...)
 
 	if len(npdExporters) == 0 {
-		glog.Fatalf("No exporter is successfully setup")
+		klog.Fatalf("No exporter is successfully setup")
 	}
 
 	// Initialize NPD core.
 	p := problemdetector.NewProblemDetector(problemDaemons, npdExporters)
-	return p.Run(termCh)
+	return p.Run(ctx)
 }

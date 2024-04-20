@@ -17,9 +17,9 @@ limitations under the License.
 package systemstatsmonitor
 
 import (
-	"github.com/golang/glog"
+	"k8s.io/klog/v2"
 
-	"github.com/shirou/gopsutil/mem"
+	"github.com/shirou/gopsutil/v3/mem"
 )
 
 func (mc *memoryCollector) collect() {
@@ -29,12 +29,16 @@ func (mc *memoryCollector) collect() {
 
 	meminfo, err := mem.VirtualMemory()
 	if err != nil {
-		glog.Errorf("cannot get windows memory metrics from GlobalMemoryStatusEx: %v", err)
+		klog.Errorf("cannot get windows memory metrics from GlobalMemoryStatusEx: %v", err)
 		return
 	}
 
 	if mc.mBytesUsed != nil {
 		mc.mBytesUsed.Record(map[string]string{stateLabel: "free"}, int64(meminfo.Available)*1024)
 		mc.mBytesUsed.Record(map[string]string{stateLabel: "used"}, int64(meminfo.Used)*1024)
+	}
+
+	if mc.mPercentUsed != nil {
+		mc.mPercentUsed.Record(map[string]string{stateLabel: "used"}, float64(meminfo.UsedPercent))
 	}
 }

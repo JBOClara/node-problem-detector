@@ -22,8 +22,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang/glog"
-	"github.com/shirou/gopsutil/disk"
+	"github.com/shirou/gopsutil/v3/disk"
+	"k8s.io/klog/v2"
 
 	ssmtypes "k8s.io/node-problem-detector/pkg/systemstatsmonitor/types"
 	"k8s.io/node-problem-detector/pkg/util/metrics"
@@ -38,6 +38,7 @@ type diskCollector struct {
 	mOpsBytes       *metrics.Int64Metric
 	mOpsTime        *metrics.Int64Metric
 	mBytesUsed      *metrics.Int64Metric
+	mPercentUsed    *metrics.Float64Metric
 
 	config *ssmtypes.DiskStatsConfig
 
@@ -69,7 +70,7 @@ func NewDiskCollectorOrDie(diskConfig *ssmtypes.DiskStatsConfig) *diskCollector 
 		metrics.Sum,
 		[]string{deviceNameLabel})
 	if err != nil {
-		glog.Fatalf("Error initializing metric for disk/io_time: %v", err)
+		klog.Fatalf("Error initializing metric for disk/io_time: %v", err)
 	}
 
 	// Use metrics.Sum aggregation method to ensure the metric is a counter/cumulative metric.
@@ -81,7 +82,7 @@ func NewDiskCollectorOrDie(diskConfig *ssmtypes.DiskStatsConfig) *diskCollector 
 		metrics.Sum,
 		[]string{deviceNameLabel})
 	if err != nil {
-		glog.Fatalf("Error initializing metric for disk/weighted_io: %v", err)
+		klog.Fatalf("Error initializing metric for disk/weighted_io: %v", err)
 	}
 
 	dc.mAvgQueueLen, err = metrics.NewFloat64Metric(
@@ -92,7 +93,7 @@ func NewDiskCollectorOrDie(diskConfig *ssmtypes.DiskStatsConfig) *diskCollector 
 		metrics.LastValue,
 		[]string{deviceNameLabel})
 	if err != nil {
-		glog.Fatalf("Error initializing metric for disk/avg_queue_len: %v", err)
+		klog.Fatalf("Error initializing metric for disk/avg_queue_len: %v", err)
 	}
 
 	dc.mOpsCount, err = metrics.NewInt64Metric(
@@ -103,7 +104,7 @@ func NewDiskCollectorOrDie(diskConfig *ssmtypes.DiskStatsConfig) *diskCollector 
 		metrics.Sum,
 		[]string{deviceNameLabel, directionLabel})
 	if err != nil {
-		glog.Fatalf("Error initializing metric for %q: %v", metrics.DiskOpsCountID, err)
+		klog.Fatalf("Error initializing metric for %q: %v", metrics.DiskOpsCountID, err)
 	}
 
 	dc.mMergedOpsCount, err = metrics.NewInt64Metric(
@@ -114,7 +115,7 @@ func NewDiskCollectorOrDie(diskConfig *ssmtypes.DiskStatsConfig) *diskCollector 
 		metrics.Sum,
 		[]string{deviceNameLabel, directionLabel})
 	if err != nil {
-		glog.Fatalf("Error initializing metric for %q: %v", metrics.DiskMergedOpsCountID, err)
+		klog.Fatalf("Error initializing metric for %q: %v", metrics.DiskMergedOpsCountID, err)
 	}
 
 	dc.mOpsBytes, err = metrics.NewInt64Metric(
@@ -125,7 +126,7 @@ func NewDiskCollectorOrDie(diskConfig *ssmtypes.DiskStatsConfig) *diskCollector 
 		metrics.Sum,
 		[]string{deviceNameLabel, directionLabel})
 	if err != nil {
-		glog.Fatalf("Error initializing metric for %q: %v", metrics.DiskOpsBytesID, err)
+		klog.Fatalf("Error initializing metric for %q: %v", metrics.DiskOpsBytesID, err)
 	}
 
 	dc.mOpsTime, err = metrics.NewInt64Metric(
@@ -136,7 +137,7 @@ func NewDiskCollectorOrDie(diskConfig *ssmtypes.DiskStatsConfig) *diskCollector 
 		metrics.Sum,
 		[]string{deviceNameLabel, directionLabel})
 	if err != nil {
-		glog.Fatalf("Error initializing metric for %q: %v", metrics.DiskOpsTimeID, err)
+		klog.Fatalf("Error initializing metric for %q: %v", metrics.DiskOpsTimeID, err)
 	}
 
 	dc.mBytesUsed, err = metrics.NewInt64Metric(
@@ -147,7 +148,18 @@ func NewDiskCollectorOrDie(diskConfig *ssmtypes.DiskStatsConfig) *diskCollector 
 		metrics.LastValue,
 		[]string{deviceNameLabel, fsTypeLabel, mountOptionLabel, stateLabel})
 	if err != nil {
-		glog.Fatalf("Error initializing metric for %q: %v", metrics.DiskBytesUsedID, err)
+		klog.Fatalf("Error initializing metric for %q: %v", metrics.DiskBytesUsedID, err)
+	}
+
+	dc.mPercentUsed, err = metrics.NewFloat64Metric(
+		metrics.DiskPercentUsedID,
+		diskConfig.MetricsConfigs[string(metrics.DiskPercentUsedID)].DisplayName,
+		"Disk usage in percentage of total space",
+		"%",
+		metrics.LastValue,
+		[]string{deviceNameLabel})
+	if err != nil {
+		klog.Fatalf("Error initializing metric for %q: %v", metrics.DiskPercentUsedID, err)
 	}
 
 	dc.lastIOTime = make(map[string]uint64)
@@ -247,7 +259,7 @@ func (dc *diskCollector) collect() {
 
 	partitions, err := disk.Partitions(false)
 	if err != nil {
-		glog.Errorf("Failed to list disk partitions: %v", err)
+		klog.Errorf("Failed to list disk partitions: %v", err)
 		return
 	}
 
@@ -258,7 +270,7 @@ func (dc *diskCollector) collect() {
 	// Fetch metrics from /proc, /sys.
 	ioCountersStats, err := disk.IOCounters(devices...)
 	if err != nil {
-		glog.Errorf("Failed to retrieve disk IO counters: %v", err)
+		klog.Errorf("Failed to retrieve disk IO counters: %v", err)
 		return
 	}
 	sampleTime := time.Now()
@@ -274,7 +286,7 @@ func (dc *diskCollector) collect() {
 
 	// to make sure that the rows are not duplicated
 	// we display only the only one row even if there are
-	// mutiple rows for the same disk.
+	// multiple rows for the same disk.
 	seen := make(map[string]bool)
 	for _, partition := range partitions {
 		if seen[partition.Device] {
@@ -283,14 +295,17 @@ func (dc *diskCollector) collect() {
 		seen[partition.Device] = true
 		usageStat, err := disk.Usage(partition.Mountpoint)
 		if err != nil {
-			glog.Errorf("Failed to retrieve disk usage for %q: %v", partition.Mountpoint, err)
+			klog.Errorf("Failed to retrieve disk usage for %q: %v", partition.Mountpoint, err)
 			continue
 		}
 		deviceName := strings.TrimPrefix(partition.Device, "/dev/")
 		fstype := partition.Fstype
-		opttypes := partition.Opts
+		opttypes := strings.Join(partition.Opts, ",")
 		dc.mBytesUsed.Record(map[string]string{deviceNameLabel: deviceName, fsTypeLabel: fstype, mountOptionLabel: opttypes, stateLabel: "free"}, int64(usageStat.Free))
 		dc.mBytesUsed.Record(map[string]string{deviceNameLabel: deviceName, fsTypeLabel: fstype, mountOptionLabel: opttypes, stateLabel: "used"}, int64(usageStat.Used))
+		if dc.mPercentUsed != nil {
+			dc.mPercentUsed.Record(map[string]string{deviceNameLabel: deviceName, fsTypeLabel: fstype, mountOptionLabel: opttypes, stateLabel: "used"}, float64(usageStat.UsedPercent))
+		}
 	}
 
 }
@@ -306,7 +321,7 @@ func listRootBlockDevices(timeout time.Duration) []string {
 	cmd := exec.CommandContext(ctx, "lsblk", "-d", "-n", "-o", "NAME")
 	stdout, err := cmd.Output()
 	if err != nil {
-		glog.Errorf("Error calling lsblk")
+		klog.Errorf("Error calling lsblk")
 	}
 	return strings.Split(strings.TrimSpace(string(stdout)), "\n")
 }

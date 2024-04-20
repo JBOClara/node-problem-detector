@@ -17,16 +17,17 @@ limitations under the License.
 package problemdetector
 
 import (
+	"context"
 	"fmt"
 
-	"github.com/golang/glog"
+	"k8s.io/klog/v2"
 
 	"k8s.io/node-problem-detector/pkg/types"
 )
 
 // ProblemDetector collects statuses from all problem daemons and update the node condition and send node event.
 type ProblemDetector interface {
-	Run(termCh <-chan error) error
+	Run(context.Context) error
 }
 
 type problemDetector struct {
@@ -44,7 +45,7 @@ func NewProblemDetector(monitors []types.Monitor, exporters []types.Exporter) Pr
 }
 
 // Run starts the problem detector.
-func (p *problemDetector) Run(termCh <-chan error) error {
+func (p *problemDetector) Run(ctx context.Context) error {
 	// Start the log monitors one by one.
 	var chans []<-chan *types.Status
 	failureCount := 0
@@ -52,7 +53,7 @@ func (p *problemDetector) Run(termCh <-chan error) error {
 		ch, err := m.Start()
 		if err != nil {
 			// Do not return error and keep on trying the following config files.
-			glog.Errorf("Failed to start problem daemon %v: %v", m, err)
+			klog.Errorf("Failed to start problem daemon %v: %v", m, err)
 			failureCount++
 			continue
 		}
@@ -73,11 +74,11 @@ func (p *problemDetector) Run(termCh <-chan error) error {
 	}()
 
 	ch := groupChannel(chans)
-	glog.Info("Problem detector started")
+	klog.Info("Problem detector started")
 
 	for {
 		select {
-		case <-termCh:
+		case <-ctx.Done():
 			return nil
 		case status := <-ch:
 			for _, exporter := range p.exporters {

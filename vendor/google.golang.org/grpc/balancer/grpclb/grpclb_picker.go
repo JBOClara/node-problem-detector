@@ -29,7 +29,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// rpcStats is same as lbmpb.ClientStats, except that numCallsDropped is a map
+// rpcStats is same as lbpb.ClientStats, except that numCallsDropped is a map
 // instead of a slice.
 type rpcStats struct {
 	// Only access the following fields atomically.
@@ -96,15 +96,6 @@ func (s *rpcStats) knownReceived() {
 	atomic.AddInt64(&s.numCallsStarted, 1)
 	atomic.AddInt64(&s.numCallsFinishedKnownReceived, 1)
 	atomic.AddInt64(&s.numCallsFinished, 1)
-}
-
-type errPicker struct {
-	// Pick always returns this err.
-	err error
-}
-
-func (p *errPicker) Pick(balancer.PickInfo) (balancer.PickResult, error) {
-	return balancer.PickResult{}, p.err
 }
 
 // rrPicker does roundrobin on subConns. It's typically used when there's no

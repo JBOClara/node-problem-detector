@@ -17,10 +17,10 @@ limitations under the License.
 package makers
 
 import (
-	"io/ioutil"
+	"os"
 	"strings"
 
-	"github.com/golang/glog"
+	"k8s.io/klog/v2"
 )
 
 func init() {
@@ -38,9 +38,9 @@ Killed process 1012 (heapster) total-vm:327128kB, anon-rss:306328kB, file-rss:11
 
 func writeKernelMessageOrDie(msg string) {
 	for _, line := range strings.Split(msg, "\n") {
-		err := ioutil.WriteFile(kmsgPath, []byte(line), 0644)
+		err := os.WriteFile(kmsgPath, []byte(line), 0644)
 		if err != nil {
-			glog.Fatalf("Failed writting to %q: %v", kmsgPath, err)
+			klog.Fatalf("Failed writing to %q: %v", kmsgPath, err)
 		}
 	}
 }
