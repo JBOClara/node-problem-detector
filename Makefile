@@ -18,7 +18,8 @@
         vet fmt version test e2e-test \
         build-binaries build-container build-tar build \
         docker-builder build-in-docker \
-        push-container push-tar push release clean depup
+        push-container push-tar push release clean depup \
+        print-tar-sha-md5
 
 all: build
 
@@ -72,11 +73,14 @@ else ifeq ($(shell go env GOHOSTOS), windows)
 ENABLE_JOURNALD=0
 endif
 
-# Set default base image to Debian 12 (Bookworm)
-BASEIMAGE:=registry.k8s.io/build-image/debian-base:bookworm-v1.0.2
-
 # Disable cgo by default to make the binary statically linked.
 CGO_ENABLED:=0
+
+ifeq ($(GOARCH), arm64)
+	CC:=aarch64-linux-gnu-gcc
+else
+	CC:=x86_64-linux-gnu-gcc
+endif
 
 # Set default Go architecture to AMD64.
 GOARCH ?= amd64
@@ -183,7 +187,7 @@ output/linux_arm64/test/bin/%: $(PKG_SOURCES)
 # In the future these targets should be deprecated.
 ./bin/log-counter: $(PKG_SOURCES)
 ifeq ($(ENABLE_JOURNALD), 1)
-	CGO_ENABLED=$(CGO_ENABLED) GOOS=linux GOARCH=$(GOARCH) go build \
+	CGO_ENABLED=$(CGO_ENABLED) GOOS=linux GOARCH=$(GOARCH) CC=$(CC) go build \
 		-o bin/log-counter \
 		-ldflags '-X $(PKG)/pkg/version.version=$(VERSION)' \
 		-tags "$(LINUX_BUILD_TAGS)" \
@@ -193,7 +197,7 @@ else
 endif
 
 ./bin/node-problem-detector: $(PKG_SOURCES)
-	CGO_ENABLED=$(CGO_ENABLED) GOOS=linux GOARCH=$(GOARCH) go build \
+	CGO_ENABLED=$(CGO_ENABLED) GOOS=linux GOARCH=$(GOARCH) CC=$(CC) go build \
 		-o bin/node-problem-detector \
 		-ldflags '-X $(PKG)/pkg/version.version=$(VERSION)' \
 		-tags "$(LINUX_BUILD_TAGS)" \
@@ -201,13 +205,13 @@ endif
 
 ./test/bin/problem-maker: $(PKG_SOURCES)
 	cd test && \
-	CGO_ENABLED=$(CGO_ENABLED) GOOS=linux GOARCH=$(GOARCH) go build \
+	CGO_ENABLED=$(CGO_ENABLED) GOOS=linux GOARCH=$(GOARCH) CC=$(CC) go build \
 		-o bin/problem-maker \
 		-tags "$(LINUX_BUILD_TAGS)" \
 		./e2e/problemmaker/problem_maker.go
 
 ./bin/health-checker: $(PKG_SOURCES)
-	CGO_ENABLED=$(CGO_ENABLED) GOOS=linux GOARCH=$(GOARCH) go build \
+	CGO_ENABLED=$(CGO_ENABLED) GOOS=linux GOARCH=$(GOARCH) CC=$(CC) go build \
 		-o bin/health-checker \
 		-ldflags '-X $(PKG)/pkg/version.version=$(VERSION)' \
 		-tags "$(LINUX_BUILD_TAGS)" \
@@ -238,7 +242,7 @@ build-binaries: $(ALL_BINARIES)
 
 build-container: clean Dockerfile
 	docker buildx create --platform $(DOCKER_PLATFORMS) --use
-	docker buildx build --platform $(DOCKER_PLATFORMS) -t $(IMAGE) --build-arg BASEIMAGE=$(BASEIMAGE) --build-arg LOGCOUNTER=$(LOGCOUNTER) .
+	docker buildx build --platform $(DOCKER_PLATFORMS) -t $(IMAGE) --build-arg LOGCOUNTER=$(LOGCOUNTER) .
 
 $(TARBALL): ./bin/node-problem-detector ./bin/log-counter ./bin/health-checker ./test/bin/problem-maker
 	tar -zcvf $(TARBALL) bin/ config/ test/e2e-install.sh test/bin/problem-maker
@@ -250,7 +254,7 @@ build-tar: $(TARBALL) $(ALL_TARBALLS)
 build: build-container build-tar
 
 docker-builder:
-	docker build -t npd-builder . --target=builder --build-arg BASEIMAGE=$(BASEIMAGE)
+	docker build -t npd-builder . --target=builder
 
 build-in-docker: clean docker-builder
 	docker run \
@@ -263,7 +267,7 @@ ifneq (,$(findstring gcr.io,$(REGISTRY)))
 	gcloud auth configure-docker
 endif
 	# Build should be cached from build-container
-	docker buildx build --push --platform $(DOCKER_PLATFORMS) -t $(IMAGE) --build-arg BASEIMAGE=$(BASEIMAGE) --build-arg LOGCOUNTER=$(LOGCOUNTER) .
+	docker buildx build --push --platform $(DOCKER_PLATFORMS) -t $(IMAGE) --build-arg LOGCOUNTER=$(LOGCOUNTER) .
 
 push-tar: build-tar
 	gsutil cp $(TARBALL) $(UPLOAD_PATH)/node-problem-detector/
@@ -273,7 +277,10 @@ push-tar: build-tar
 push: push-container push-tar
 
 # `make release` is used when releasing a new NPD version.
-release: push-container build-tar
+release: push-container build-tar print-tar-sha-md5
+
+print-tar-sha-md5: build-tar
+	./hack/print-tar-sha-md5.sh $(VERSION)
 
 coverage.out:
 	rm -f coverage.out

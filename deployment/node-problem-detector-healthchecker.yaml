@@ -28,9 +28,9 @@ spec:
         command:
         - /node-problem-detector
         - --logtostderr
-        - --config.system-log-monitor=/config/kernel-monitor.json,/config/docker-monitor.json
+        - --config.system-log-monitor=/config/kernel-monitor.json,/config/readonly-monitor.json,/config/docker-monitor.json
         - --config.custom-plugin-monitor=/config/health-checker-kubelet.json
-        image: registry.k8s.io/node-problem-detector/node-problem-detector:v0.8.18
+        image: registry.k8s.io/node-problem-detector/node-problem-detector:v0.8.19
         resources:
           limits:
             cpu: 10m
@@ -86,6 +86,8 @@ spec:
           items:
           - key: kernel-monitor.json
             path: kernel-monitor.json
+          - key: readonly-monitor.json
+            path: readonly-monitor.json
           - key: docker-monitor.json
             path: docker-monitor.json
       - name: machine-id
